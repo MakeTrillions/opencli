@@ -232,6 +232,10 @@ opencli hf top --limit 10                # 热门模型
 # 超星学习通 (browser)
 opencli chaoxing assignments             # 作业列表
 opencli chaoxing exams                   # 考试列表
+
+# Proton Mail (browser)
+opencli proton login                     # 网页登录（--email / PROTON_EMAIL，密码用 PROTON_PASSWORD）
+opencli proton inbox --from ifood        # 从已登录收件箱刮取最新验证码
 ```
 
 ### Management Commands

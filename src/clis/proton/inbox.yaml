@@ -1,0 +1,104 @@
+site: proton
+name: inbox
+description: Scrape Proton Mail inbox from the logged-in Chrome session
+domain: mail.proton.me
+strategy: ui
+browser: true
+timeout: 90
+
+args:
+  from:
+    type: str
+    default: ifood
+    description: Sender keyword (case-insensitive substring)
+  limit:
+    type: int
+    default: 20
+    description: Max message rows
+
+pipeline:
+  - navigate:
+      url: https://mail.proton.me/
+      settleMs: 5000
+
+  - evaluate: |
+      (async () => {
+        const sender = String(${{ args.from | json }} || '').toLowerCase();
+        const limit = ${{ args.limit | default(20) }};
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+        const pageText = () => (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+        const state = () => ({
+          url: location.href,
+          title: document.title,
+          host: location.host,
+        });
+
+        // Search if a search box exists
+        const searchEl = document.querySelector('input[type="search"], input[placeholder*="Search" i], input[placeholder*="搜索"]');
+        if (searchEl && sender) {
+          const desc = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+          desc.set.call(searchEl, sender);
+          searchEl.dispatchEvent(new Event('input', { bubbles: true }));
+          searchEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          searchEl.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }));
+          await sleep(2500);
+        }
+
+        const nodes = Array.from(document.querySelectorAll(
+          '[data-testid*="item"], [data-element-id], .item-container, [role="row"], [class*="item-wrapper"]'
+        ));
+        const rows = [];
+        const seen = new Set();
+        for (const n of nodes) {
+          const t = (n.innerText || '').replace(/\s+/g, ' ').trim();
+          if (t.length < 8 || t.length > 400) continue;
+          if (seen.has(t)) continue;
+          seen.add(t);
+          rows.push(t);
+          if (rows.length >= limit) break;
+        }
+
+        const hit = nodes.find(n => (n.innerText || '').toLowerCase().includes(sender));
+        let opened = '';
+        if (hit) {
+          hit.click();
+          await sleep(2000);
+          opened = pageText().slice(0, 2500);
+        }
+
+        const pickCode = (text) => {
+          const matches = [...String(text || '').matchAll(/\d{4,8}/g)].map(m => m[0])
+            .filter(c => !/^20\d{2}$/.test(c));
+          const six = matches.filter(c => c.length === 6);
+          if (six.length) return six[six.length - 1];
+          return matches.length ? matches[matches.length - 1] : '';
+        };
+
+        const body = pageText();
+        const senderRows = rows.filter(r => r.toLowerCase().includes(sender));
+        const code = pickCode(opened) || pickCode(senderRows.join('\n')) || pickCode(body);
+        const s = state();
+        return [{
+          url: s.url,
+          title: s.title,
+          logged_in: /mail\.proton\.me/i.test(s.url) && !/login/i.test(s.url),
+          sender,
+          sender_hit: body.toLowerCase().includes(sender) || rows.some(r => r.toLowerCase().includes(sender)),
+          code,
+          rows: rows.slice(0, limit).join(' || '),
+          body_head: (opened || body).slice(0, 1500),
+        }];
+      })()
+
+  - map:
+      url: ${{ item.url }}
+      title: ${{ item.title }}
+      logged_in: ${{ item.logged_in }}
+      sender: ${{ item.sender }}
+      sender_hit: ${{ item.sender_hit }}
+      code: ${{ item.code }}
+      rows: ${{ item.rows }}
+      body_head: ${{ item.body_head }}
+
+columns: [url, title, logged_in, sender, sender_hit, code, rows, body_head]

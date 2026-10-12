@@ -121,6 +121,29 @@ describe('manifest helper rules', () => {
     )).toBe(false);
   });
 
+  it('reads timeoutSeconds from TS adapters', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencli-manifest-'));
+    tempDirs.push(dir);
+    const file = path.join(dir, 'login.ts');
+    fs.writeFileSync(file, `
+      cli({
+        site: 'proton',
+        name: 'login',
+        description: 'Sign in to Proton Mail',
+        timeoutSeconds: 120,
+        navigateBefore: false,
+        func: async () => [],
+      });
+    `);
+
+    expect(scanTs(file, 'proton')).toMatchObject({
+      site: 'proton',
+      name: 'login',
+      timeout: 120,
+      navigateBefore: false,
+    });
+  });
+
   it('skips TS files that do not register a cli', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencli-manifest-'));
     tempDirs.push(dir);
